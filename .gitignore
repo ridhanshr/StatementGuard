@@ -1,0 +1,28 @@
+# Dependencies
+node_modules/
+
+# Build output
+dist/
+pyinstaller_build/
+pyinstaller_dist/
+
+# PyInstaller
+*.spec
+
+# Python
+__pycache__/
+*.pyc
+*.pyo
+
+# Logs
+*.log
+build-log.txt
+pyinstaller-log.txt
+
+# OS files
+Thumbs.db
+.DS_Store
+
+# IDE
+.vscode/
+.idea/

@@ -1,0 +1,343 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>StatementGuard - PTSTMT Validation Tools</title>
+    <link rel="stylesheet" href="css/styles.css" />
+    <link
+      href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap"
+      rel="stylesheet"
+    />
+    <link
+      href="https://fonts.googleapis.com/icon?family=Material+Icons+Outlined"
+      rel="stylesheet"
+    />
+  </head>
+  <body>
+    <div class="app-container">
+      <!-- ===== SIDEBAR ===== -->
+      <aside class="sidebar" id="sidebar">
+        <div class="sidebar-header">
+          <div class="sidebar-logo">
+            <img src="assets/bri-logo.png" alt="BRI" class="logo-icon-img" />
+            <div class="logo-text">
+              <h1>StatementGuard</h1>
+              <p>PTSTMT Validation Tools</p>
+            </div>
+          </div>
+        </div>
+
+        <div class="sidebar-section-label">OVERVIEW</div>
+
+        <nav class="sidebar-nav">
+          <a class="nav-item active" data-module="dashboard" href="#">
+            <span class="nav-icon material-icons-outlined">dashboard</span>
+            <span class="nav-text">Dashboard</span>
+          </a>
+
+          <div class="sidebar-section-label" style="padding-left:4px;padding-right:4px">VALIDATION MODULES</div>
+
+          <a class="nav-item" data-module="validation" href="#">
+            <span class="nav-icon material-icons-outlined">grid_view</span>
+            <span class="nav-text">Validation Results</span>
+          </a>
+          <a class="nav-item" data-module="posting" href="#">
+            <span class="nav-icon material-icons-outlined">filter_list</span>
+            <span class="nav-text">Posting Date Filter</span>
+          </a>
+          <a class="nav-item" data-module="structure" href="#">
+            <span class="nav-icon material-icons-outlined">account_tree</span>
+            <span class="nav-text">Structure Validation</span>
+          </a>
+          <a class="nav-item" data-module="duplicate" href="#">
+            <span class="nav-icon material-icons-outlined">content_copy</span>
+            <span class="nav-text">Duplicate Transactions</span>
+          </a>
+          <a class="nav-item" data-module="totpay" href="#">
+            <span class="nav-icon material-icons-outlined">paid</span>
+            <span class="nav-text">Tot Payment Check</span>
+          </a>
+          <a class="nav-item" data-module="zeroamt" href="#">
+            <span class="nav-icon material-icons-outlined">money_off</span>
+            <span class="nav-text">Zero Amount Check</span>
+          </a>
+          <a class="nav-item" data-module="sequence" href="#">
+            <span class="nav-icon material-icons-outlined"
+              >format_list_numbered</span
+            >
+            <span class="nav-text">Sequence Check</span>
+          </a>
+        </nav>
+
+        <div class="sidebar-footer">
+          <span class="status-dot"></span>
+          <span class="status-text">System Ready</span>
+        </div>
+      </aside>
+
+      <!-- ===== MAIN CONTENT ===== -->
+      <main class="main-content">
+        <!-- Header Bar -->
+        <header class="header-bar">
+          <span class="header-title"
+            >Credit Card Statement Validation System</span
+          >
+          <div class="header-actions">
+            <button
+              class="icon-btn"
+              id="darkModeToggle"
+              title="Toggle Dark Mode"
+            >
+              <span class="material-icons-outlined">dark_mode</span>
+            </button>
+          </div>
+        </header>
+
+        <!-- Content Area (scrollable) -->
+        <div class="content-area">
+          <!-- Controls Card -->
+          <div class="card controls-card">
+            <div class="controls-row">
+              <!-- Source Data -->
+              <div class="control-group">
+                <label class="control-label">SOURCE DATA</label>
+                <button class="btn btn-outline" id="btnSelectFile">
+                  <span class="material-icons-outlined" style="font-size: 18px"
+                    >description</span
+                  >
+                  Pilih File
+                </button>
+                <div class="file-name" id="fileName"></div>
+              </div>
+
+              <!-- Card Type -->
+              <div class="control-group">
+                <label class="control-label">TIPE KARTU</label>
+                <div class="radio-group">
+                  <label class="radio-label">
+                    <input
+                      type="radio"
+                      name="cardType"
+                      value="REGULAR"
+                      checked
+                    />
+                    <span class="radio-custom"></span>
+                    Regular
+                  </label>
+                  <label class="radio-label">
+                    <input type="radio" name="cardType" value="CORPORATE" />
+                    <span class="radio-custom"></span>
+                    Corporate
+                  </label>
+                </div>
+              </div>
+
+              <!-- Date Range -->
+              <div class="control-group">
+                <label class="control-label">RENTANG TANGGAL POSTING</label>
+                <div class="date-range">
+                  <input
+                    type="date"
+                    id="dateFrom"
+                    value="2025-10-16"
+                    class="date-input"
+                  />
+                  <span class="date-separator">to</span>
+                  <input
+                    type="date"
+                    id="dateUntil"
+                    value="2025-11-15"
+                    class="date-input"
+                  />
+                </div>
+              </div>
+
+              <!-- Process Button -->
+              <div class="control-group control-group-action">
+                <button class="btn btn-primary" id="btnProcess">
+                  <span class="material-icons-outlined" style="font-size: 18px"
+                    >play_arrow</span
+                  >
+                  Proses
+                </button>
+              </div>
+            </div>
+
+            <!-- Progress Bar -->
+            <div class="progress-section">
+              <div class="progress-header">
+                <span class="progress-title">Processing Status</span>
+                <span class="progress-percent" id="progressPercent"
+                  >0% Complete</span
+                >
+              </div>
+              <div class="progress-bar-track">
+                <div class="progress-bar-fill" id="progressBar"></div>
+              </div>
+            </div>
+          </div>
+
+          <!-- ===== DASHBOARD VIEW ===== -->
+          <div id="dashboardView" class="dashboard-view">
+            <!-- Metric Cards -->
+            <div class="metric-cards">
+              <div class="metric-card">
+                <div class="metric-icon" style="background:#eef2ff;color:#4f46e5">
+                  <span class="material-icons-outlined">fact_check</span>
+                </div>
+                <div class="metric-info">
+                  <span class="metric-value" id="metricTotal">0</span>
+                  <span class="metric-label">Total Checks</span>
+                </div>
+              </div>
+              <div class="metric-card">
+                <div class="metric-icon" style="background:#d5f5e3;color:#27ae60">
+                  <span class="material-icons-outlined">check_circle</span>
+                </div>
+                <div class="metric-info">
+                  <span class="metric-value" id="metricPassRate">0%</span>
+                  <span class="metric-label">Pass Rate</span>
+                </div>
+              </div>
+              <div class="metric-card">
+                <div class="metric-icon" style="background:#fdecea;color:#e74c3c">
+                  <span class="material-icons-outlined">error_outline</span>
+                </div>
+                <div class="metric-info">
+                  <span class="metric-value" id="metricIssues">0</span>
+                  <span class="metric-label">Issues Found</span>
+                </div>
+              </div>
+              <div class="metric-card">
+                <div class="metric-icon" style="background:#fef5e7;color:#f39c12">
+                  <span class="material-icons-outlined">credit_card</span>
+                </div>
+                <div class="metric-info">
+                  <span class="metric-value" id="metricCards">0</span>
+                  <span class="metric-label">Cards Processed</span>
+                </div>
+              </div>
+            </div>
+
+            <!-- Charts Row -->
+            <div class="charts-row">
+              <div class="card chart-card">
+                <h3 class="chart-title">Validation Results</h3>
+                <div class="donut-container">
+                  <div class="donut" id="donutValidation"></div>
+                  <div class="donut-center">
+                    <span class="donut-percent" id="donutValPercent">0%</span>
+                    <span class="donut-sub">Pass</span>
+                  </div>
+                </div>
+                <div class="chart-legend">
+                  <div class="legend-item"><span class="legend-dot" style="background:#27ae60"></span> Pass <strong id="legendValPass">0</strong></div>
+                  <div class="legend-item"><span class="legend-dot" style="background:#e74c3c"></span> Fail <strong id="legendValFail">0</strong></div>
+                </div>
+              </div>
+              <div class="card chart-card">
+                <h3 class="chart-title">Overall Health</h3>
+                <div class="donut-container">
+                  <div class="donut" id="donutHealth"></div>
+                  <div class="donut-center">
+                    <span class="donut-percent" id="donutHealthPercent">0%</span>
+                    <span class="donut-sub">Valid</span>
+                  </div>
+                </div>
+                <div class="chart-legend">
+                  <div class="legend-item"><span class="legend-dot" style="background:#27ae60"></span> Valid <strong id="legendHealthValid">0</strong></div>
+                  <div class="legend-item"><span class="legend-dot" style="background:#e74c3c"></span> Invalid <strong id="legendHealthInvalid">0</strong></div>
+                </div>
+              </div>
+            </div>
+
+            <!-- Module Health Table -->
+            <div class="card module-health-card">
+              <h3 class="chart-title" style="padding:18px 24px 0">Module Overview</h3>
+              <table class="data-table module-health-table">
+                <thead>
+                  <tr>
+                    <th>Module</th>
+                    <th>Total</th>
+                    <th>Pass / Valid</th>
+                    <th>Fail / Invalid</th>
+                    <th>Rate</th>
+                    <th>Status</th>
+                  </tr>
+                </thead>
+                <tbody id="moduleHealthBody"></tbody>
+              </table>
+            </div>
+          </div>
+
+          <!-- ===== TABLE VIEW ===== -->
+          <div id="tableView">
+          <!-- Results Card -->
+          <div class="card results-card">
+            <div class="results-header">
+              <div class="results-title-row">
+                <h2 class="results-title" id="resultsTitle">
+                  Validation Results
+                </h2>
+                <span class="badge badge-green" id="realtimeBadge"
+                  >Realtime View</span
+                >
+              </div>
+              <div class="search-bar">
+                <span class="material-icons-outlined search-icon">search</span>
+                <input
+                  type="text"
+                  class="search-input"
+                  id="searchInput"
+                  placeholder="Search card number..."
+                />
+                <button class="btn btn-text" id="btnClear">Clear</button>
+              </div>
+            </div>
+
+            <!-- Table -->
+            <div class="table-container">
+              <table class="data-table" id="dataTable">
+                <thead>
+                  <tr id="tableHead"></tr>
+                </thead>
+                <tbody id="tableBody"></tbody>
+              </table>
+              <div class="empty-state" id="emptyState">
+                <span
+                  class="material-icons-outlined"
+                  style="font-size: 48px; color: #ccc"
+                  >inbox</span
+                >
+                <p>
+                  No data available. Select a file and click "Proses" to start
+                  validation.
+                </p>
+              </div>
+            </div>
+
+            <!-- Table Footer -->
+            <div class="table-footer">
+              <div class="showing-info" id="showingInfo">Showing 0 results</div>
+              <div class="table-footer-right">
+                <div class="pagination" id="pagination"></div>
+                <button class="btn btn-outline btn-export" id="btnExport">
+                  <span
+                    class="material-icons-outlined"
+                    style="font-size: 18px; color: #27ae60"
+                    >table_chart</span
+                  >
+                  Export CSV
+                </button>
+              </div>
+            </div>
+          </div>
+          </div><!-- /tableView -->
+        </div>
+      </main>
+    </div>
+
+    <script src="js/app.js"></script>
+  </body>
+</html>
