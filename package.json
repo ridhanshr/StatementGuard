@@ -17,12 +17,15 @@
     },
     "asar": false,
     "files": [
-      "!**/*",
       "electron/main.js",
-      "electron/preload.js",
-      "renderer/**/*"
+      "electron/preload.js"
     ],
     "extraResources": [
+      {
+        "from": "renderer",
+        "to": "renderer",
+        "filter": ["**/*"]
+      },
       {
         "from": "pyinstaller_dist/bridge.exe",
         "to": "bridge/bridge.exe"
