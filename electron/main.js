@@ -21,8 +21,11 @@ function createWindow() {
     frame: true,
     backgroundColor: "#f0f2f5",
   });
+  const rendererPath = app.isPackaged
+    ? path.join(process.resourcesPath, "renderer")
+    : path.join(__dirname, "..", "renderer");
 
-  mainWindow.loadFile(path.join(__dirname, "..", "renderer", "index.html"));
+  mainWindow.loadFile(path.join(rendererPath, "index.html"));
 
   mainWindow.on("closed", () => {
     mainWindow = null;
