@@ -61,6 +61,7 @@ def process_validation_realtime(params):
     card_tot_payment = {}
     zero_amount_transactions = []
     customer_sequences = {}
+    non_idr_transactions = []
 
     # State
     current_header = None
@@ -73,10 +74,11 @@ def process_validation_realtime(params):
     val_batch = []
     filter_batch = []
     zero_batch = []
+    currency_batch = []
     BATCH_SIZE = 5  # Send every N items
 
     def flush_batches():
-        nonlocal val_batch, filter_batch, zero_batch
+        nonlocal val_batch, filter_batch, zero_batch, currency_batch
         if val_batch:
             send_data("validations", val_batch)
             val_batch = []
@@ -86,6 +88,9 @@ def process_validation_realtime(params):
         if zero_batch:
             send_data("zero_amount_transactions", zero_batch)
             zero_batch = []
+        if currency_batch:
+            send_data("non_idr_transactions", currency_batch)
+            currency_batch = []
 
     def validate_block(header, stats, card_type_val):
         """Validate a block and stream results immediately."""
@@ -168,6 +173,7 @@ def process_validation_realtime(params):
                 posting_date = to_date(extract_posting_date(line))
                 card_num = extract_card_number(line)
                 trx_detail = slice_str(line, 90, 129)
+                trx_currency = slice_str(line, 130, 132)
                 trx_amt = slice_num(line, 149, 162)
                 trx_dir = slice_str(line, 163, 164)
 
@@ -203,6 +209,19 @@ def process_validation_realtime(params):
                     zero_amount_transactions.append(entry)
                     zero_batch.append(entry)
 
+                # Track non-IDR currency
+                if trx_currency != "360":
+                    entry = {
+                        "card": card_num,
+                        "posting_date": str(posting_date),
+                        "trx_detail": trx_detail,
+                        "amount": trx_amt,
+                        "currency": trx_currency,
+                        "direction": trx_dir
+                    }
+                    non_idr_transactions.append(entry)
+                    currency_batch.append(entry)
+
                 if current_header is not None:
                     current_stats[trx_dir] = current_stats.get(trx_dir, 0) + trx_amt
 
@@ -216,7 +235,7 @@ def process_validation_realtime(params):
                     customer_sequences[current_customer].append("04")
 
             # Flush batches periodically
-            if len(val_batch) >= BATCH_SIZE or len(filter_batch) >= BATCH_SIZE or len(zero_batch) >= BATCH_SIZE:
+            if len(val_batch) >= BATCH_SIZE or len(filter_batch) >= BATCH_SIZE or len(zero_batch) >= BATCH_SIZE or len(currency_batch) >= BATCH_SIZE:
                 flush_batches()
 
     # Validate last block
@@ -301,7 +320,8 @@ def process_validation_realtime(params):
             "duplicate_transactions": duplicate_transactions,
             "zero_amount_transactions": zero_amount_transactions,
             "tot_payment_results": tot_payment_results,
-            "sequence_results": sequence_results
+            "sequence_results": sequence_results,
+            "non_idr_transactions": non_idr_transactions
         }
     }
 

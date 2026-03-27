@@ -28,6 +28,7 @@ class ValidationResult:
     zero_amount_transactions: List[Dict]
     tot_payment_results: List[Dict]
     sequence_results: List[Dict]
+    non_idr_transactions: List[Dict]
 
 
 class PTSTMTValidator:
@@ -70,6 +71,7 @@ class PTSTMTValidator:
         card_tot_payment = {}  # card -> tot_payment from prefix 02
         zero_amount_transactions = []  # Transactions with amount = 0
         customer_sequences = {}  # customer -> list of record types
+        non_idr_transactions = []  # Transactions with non-IDR currency
         
         # State
         current_header = None
@@ -126,6 +128,7 @@ class PTSTMTValidator:
                     posting_date = to_date(extract_posting_date(line))
                     card_num = extract_card_number(line)
                     trx_detail = slice_str(line, 90, 129)
+                    trx_currency = slice_str(line, 131, 133)
                     trx_amt = slice_num(line, 149, 162)
                     trx_dir = slice_str(line, 163, 164)
                     
@@ -145,6 +148,17 @@ class PTSTMTValidator:
                         card_transactions[current_card].append({
                             'direction': trx_dir,
                             'amount': trx_amt
+                        })
+                    
+                    # Track non-IDR currency
+                    if trx_currency != "360":
+                        non_idr_transactions.append({
+                            "card": card_num,
+                            "posting_date": posting_date,
+                            "trx_detail": trx_detail,
+                            "amount": trx_amt,
+                            "currency": trx_currency,
+                            "direction": trx_dir
                         })
                     
                     # Track zero amount transactions
@@ -186,7 +200,8 @@ class PTSTMTValidator:
             duplicate_transactions=duplicate_results,
             zero_amount_transactions=zero_amount_transactions,
             tot_payment_results=totpay_results,
-            sequence_results=sequence_results
+            sequence_results=sequence_results,
+            non_idr_transactions=non_idr_transactions
         )
     
     def _validate_block(self, header: Dict, stats: Dict, validations: List[Dict], card_type: str):

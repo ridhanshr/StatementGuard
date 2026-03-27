@@ -54,6 +54,13 @@ const MODULES = {
     searchColumn: 'customer',
     searchPlaceholder: 'Search customer...',
     dataKey: 'sequence_results'
+  },
+  currency: {
+    title: 'Currency Check (Non-IDR)',
+    columns: ['card', 'posting_date', 'trx_detail', 'amount', 'currency', 'direction'],
+    searchColumn: 'card',
+    searchPlaceholder: 'Search card number...',
+    dataKey: 'non_idr_transactions'
   }
 };
 
@@ -217,6 +224,7 @@ function renderDashboard() {
   const duplicates = d.duplicate_transactions || [];
   const zeroamt = d.zero_amount_transactions || [];
   const filtered = d.filtered_transactions || [];
+  const nonidr = d.non_idr_transactions || [];
   
   // Validation pass/fail
   const valPass = validations.filter(r => r.status === 'PASS').length;
@@ -241,10 +249,10 @@ function renderDashboard() {
   const healthTotal = healthValid + healthInvalid;
   
   // Total checks = all items with status + issue counts
-  const totalChecks = valTotal + healthTotal + duplicates.length + zeroamt.length + filtered.length;
+  const totalChecks = valTotal + healthTotal + duplicates.length + zeroamt.length + filtered.length + nonidr.length;
   
-  // Issues = failures + duplicates + zero amounts
-  const totalIssues = valFail + healthInvalid + duplicates.length + zeroamt.length;
+  // Issues = failures + duplicates + zero amounts + non-idr
+  const totalIssues = valFail + healthInvalid + duplicates.length + zeroamt.length + nonidr.length;
   
   // Unique cards
   const cardSet = new Set();
@@ -290,6 +298,7 @@ function renderDashboard() {
     { name: 'Duplicate Transactions', total: duplicates.length, pass: 0, fail: duplicates.length },
     { name: 'Zero Amount', total: zeroamt.length, pass: 0, fail: zeroamt.length },
     { name: 'Posting Date Filter', total: filtered.length, pass: 0, fail: filtered.length },
+    { name: 'Currency Check (Non-IDR)', total: nonidr.length, pass: 0, fail: nonidr.length },
   ];
   
   const tbody = document.getElementById('moduleHealthBody');
