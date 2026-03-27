@@ -68,6 +68,7 @@ const state = {
   sortColumn: null,
   sortAscending: true,
   searchText: '',
+  columnFilters: {},    // { columnName: filterText }
   processing: false
 };
 
@@ -175,6 +176,7 @@ function switchModule(moduleName) {
   state.currentModule = moduleName;
   state.currentPage = 1;
   state.searchText = '';
+  state.columnFilters = {};
   state.sortColumn = null;
   state.sortAscending = true;
   
@@ -431,12 +433,23 @@ function initSearch() {
     }
   });
   
+  // Global search clear
   dom.btnClear().addEventListener('click', () => {
     dom.searchInput().value = '';
     state.searchText = '';
     state.currentPage = 1;
     renderTable();
   });
+}
+
+function updateColumnFilter(column, value) {
+  if (value.trim()) {
+    state.columnFilters[column] = value.trim().toLowerCase();
+  } else {
+    delete state.columnFilters[column];
+  }
+  state.currentPage = 1;
+  renderTable();
 }
 
 // ===== TABLE RENDERING =====
@@ -446,11 +459,25 @@ function renderTable() {
   
   // Apply search
   let data = rawData;
+  
+  // Global search (if active)
   if (state.searchText) {
     const searchLower = state.searchText.toLowerCase();
-    data = rawData.filter(row => {
+    data = data.filter(row => {
       const val = String(row[config.searchColumn] || '').toLowerCase();
       return val.includes(searchLower);
+    });
+  }
+  
+  // Column filters
+  const filterKeys = Object.keys(state.columnFilters);
+  if (filterKeys.length > 0) {
+    data = data.filter(row => {
+      return filterKeys.every(key => {
+        const filterVal = state.columnFilters[key];
+        const cellVal = String(row[key] || '').toLowerCase();
+        return cellVal.includes(filterVal);
+      });
     });
   }
   
@@ -499,12 +526,39 @@ function renderTableHead(columns) {
   columns.forEach(col => {
     const th = document.createElement('th');
     const label = col.replace(/_/g, ' ');
-    let sortIndicator = '';
+    
+    // Header label wrapper
+    const headerContent = document.createElement('div');
+    headerContent.className = 'th-header';
+    
+    const labelSpan = document.createElement('span');
+    labelSpan.textContent = label;
+    headerContent.appendChild(labelSpan);
+    
+    // Sort indicator
     if (state.sortColumn === col) {
-      sortIndicator = state.sortAscending ? ' ↑' : ' ↓';
+      const icon = document.createElement('span');
+      icon.className = 'sort-icon material-icons-outlined';
+      icon.style.fontSize = '14px';
+      icon.textContent = state.sortAscending ? 'arrow_upward' : 'arrow_downward';
+      headerContent.appendChild(icon);
     }
-    th.textContent = label + sortIndicator;
-    th.addEventListener('click', () => sortBy(col));
+    
+    th.appendChild(headerContent);
+    labelSpan.addEventListener('click', () => sortBy(col));
+    
+    // Filter input
+    const filterInput = document.createElement('input');
+    filterInput.type = 'text';
+    filterInput.className = 'column-filter';
+    filterInput.placeholder = `Filter ${label}...`;
+    filterInput.value = state.columnFilters[col] || '';
+    filterInput.addEventListener('click', (e) => e.stopPropagation());
+    filterInput.addEventListener('input', debounce((e) => {
+      updateColumnFilter(col, e.target.value);
+    }, 300));
+    
+    th.appendChild(filterInput);
     head.appendChild(th);
   });
 }
