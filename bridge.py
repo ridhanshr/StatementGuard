@@ -240,6 +240,12 @@ def process_validation_realtime(params):
 
     # Generate post-processing results and stream them
     # Structure results
+    def send_results_chunked(module, results, size=500):
+        """Send large results in chunks to prevent memory/buffer overflow."""
+        for i in range(0, len(results), size):
+            send_data(module, results[i:i + size])
+
+    # Structure results
     required = {"01", target_header_type, "03", "04"}
     structure_results = []
     for customer, types in card_records.items():
@@ -256,7 +262,7 @@ def process_validation_realtime(params):
             "missing": ", ".join(sorted(missing)) if missing else "-",
             "fixable": "04" in missing and len(missing) == 1
         })
-    send_data("structure_results", structure_results)
+    send_results_chunked("structure_results", structure_results)
 
     # Duplicate results
     duplicate_transactions = []
@@ -271,7 +277,7 @@ def process_validation_realtime(params):
                 "direction": trx_dir,
                 "count": count
             })
-    send_data("duplicate_transactions", duplicate_transactions)
+    send_results_chunked("duplicate_transactions", duplicate_transactions)
 
     # Tot payment results
     tot_payment_results = []
@@ -291,7 +297,7 @@ def process_validation_realtime(params):
             "cr_total": cr_total,
             "status": status
         })
-    send_data("tot_payment_results", tot_payment_results)
+    send_results_chunked("tot_payment_results", tot_payment_results)
 
     # Sequence results
     if card_type == "CORPORATE":
@@ -307,7 +313,7 @@ def process_validation_realtime(params):
             "sequence": "->".join(seq),
             "status": status
         })
-    send_data("sequence_results", sequence_results)
+    send_results_chunked("sequence_results", sequence_results)
 
     # Return final success result
     return {

@@ -6,8 +6,9 @@
   "scripts": {
     "start": "electron .",
     "dev": "electron . --dev",
-    "build": "electron-builder --win",
-    "build:dir": "electron-builder --win --dir"
+    "build:python": "python -m PyInstaller bridge.spec --distpath pyinstaller_dist --noconfirm",
+    "build": "npm run build:python && electron-builder --win",
+    "build:dir": "npm run build:python && electron-builder --win --dir"
   },
   "build": {
     "appId": "com.bri.statementguard",

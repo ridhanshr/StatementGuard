@@ -120,8 +120,10 @@ function handleRealtimeData(data) {
     state.allData[module] = [];
   }
   
-  // Append new rows
-  state.allData[module].push(...rows);
+  // Append new rows (avoid spread operator to prevent stack overflow on large data)
+  for (let i = 0; i < rows.length; i++) {
+    state.allData[module].push(rows[i]);
+  }
   
   // During processing: only show lightweight row count, NO full table render
   if (state.processing) {
