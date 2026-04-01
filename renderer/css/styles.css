@@ -1089,3 +1089,53 @@ body.dark-mode .nav-item.active {
     margin-left: 0;
   }
 }
+
+/* ===== DRILL-DOWN STYLES ===== */
+.drill-down-row td {
+  padding: 0;
+  border-bottom: 2px solid var(--border);
+  background: var(--bg-table-alt) !important;
+}
+
+.drill-down-content {
+  padding: 24px;
+  animation: fadeIn 0.3s ease;
+  border-left: 4px solid var(--danger);
+}
+
+.drill-down-header {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 16px;
+  font-size: 14px;
+}
+
+.drill-down-grid {
+  display: flex;
+  gap: 40px;
+}
+
+.drill-item {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.drill-label {
+  font-size: 11px;
+  color: var(--text-muted);
+  text-transform: uppercase;
+  font-weight: 600;
+  letter-spacing: 0.5px;
+}
+
+.drill-value {
+  font-size: 16px;
+  font-weight: 600;
+  letter-spacing: 0.5px;
+}
+
+body.dark-mode .drill-down-row td {
+  background: rgba(0, 0, 0, 0.1) !important;
+}

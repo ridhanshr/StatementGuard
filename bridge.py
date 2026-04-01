@@ -15,6 +15,7 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
 from src.core.validation import PTSTMTValidator, ValidationResult
 from src.utils.data_utils import to_date, slice_num, slice_str, extract_posting_date, extract_card_number, custom_round
+from src.utils.patcher import PTSTMTPatcher
 import re
 
 
@@ -46,22 +47,18 @@ def process_validation_realtime(params):
     # Determine target header type based on card type
     target_header_type = "02"  # default for REGULAR
     if card_type == "CORPORATE":
-        target_header_type = "02"
+        target_header_type = "01"
 
     # Count total lines
     with open(file_path, "r", encoding="latin-1") as f:
         total_lines = sum(1 for _ in f)
 
     # Data collectors
-    filtered = []
-    validations = []
     card_records = {}
     transaction_tracker = {}
     card_transactions = {}
     card_tot_payment = {}
-    zero_amount_transactions = []
     customer_sequences = {}
-    non_idr_transactions = []
 
     # State
     current_header = None
@@ -121,7 +118,6 @@ def process_validation_realtime(params):
             check("AVL_CR_LIMIT", expected_avl, header['avl_actual']),
             check("PT_SH_MIN_PAYMENT", expected_min_pay, header['amount_due'])
         ]
-        validations.extend(results)
         val_batch.extend(results)
 
     # Process file
@@ -165,9 +161,9 @@ def process_validation_realtime(params):
                 card_tot_payment[current_card] = tot_payment
                 card_transactions[current_card] = []
 
-                if record_type == "02" and current_customer:
-                    card_records[current_customer].add("02")
-                    customer_sequences[current_customer].append("02")
+                if record_type == target_header_type and current_customer:
+                    card_records[current_customer].add(target_header_type)
+                    customer_sequences[current_customer].append(target_header_type)
 
             elif record_type == "03":
                 posting_date = to_date(extract_posting_date(line))
@@ -183,7 +179,6 @@ def process_validation_realtime(params):
                         "card": card_num,
                         "line": line.rstrip()
                     }
-                    filtered.append(entry)
                     filter_batch.append(entry)
 
                 # Track duplicate
@@ -206,7 +201,6 @@ def process_validation_realtime(params):
                         "amount": trx_amt,
                         "direction": trx_dir
                     }
-                    zero_amount_transactions.append(entry)
                     zero_batch.append(entry)
 
                 # Track non-IDR currency
@@ -219,7 +213,6 @@ def process_validation_realtime(params):
                         "currency": trx_currency,
                         "direction": trx_dir
                     }
-                    non_idr_transactions.append(entry)
                     currency_batch.append(entry)
 
                 if current_header is not None:
@@ -247,18 +240,21 @@ def process_validation_realtime(params):
 
     # Generate post-processing results and stream them
     # Structure results
-    required = {"01", "02", "03", "04"}
+    required = {"01", target_header_type, "03", "04"}
     structure_results = []
     for customer, types in card_records.items():
         missing = required - types
+        has_header = "Yes" if target_header_type in types else "No"
+        
         structure_results.append({
             "customer": customer,
             "has_01": "Yes" if "01" in types else "No",
-            "has_02": "Yes" if "02" in types else "No",
+            "has_02": has_header if card_type == "REGULAR" else "N/A",
             "has_03": "Yes" if "03" in types else "No",
             "has_04": "Yes" if "04" in types else "No",
             "status": "VALID" if not missing else "INVALID",
-            "missing": ", ".join(sorted(missing)) if missing else "-"
+            "missing": ", ".join(sorted(missing)) if missing else "-",
+            "fixable": "04" in missing and len(missing) == 1
         })
     send_data("structure_results", structure_results)
 
@@ -298,7 +294,10 @@ def process_validation_realtime(params):
     send_data("tot_payment_results", tot_payment_results)
 
     # Sequence results
-    pattern = re.compile(r"^01(02(03)*04)((02|03)(03)*04)*$")
+    if card_type == "CORPORATE":
+        pattern = re.compile(r"^(0101(03)*04)+$")
+    else:
+        pattern = re.compile(r"^01(02(03)*04)((02|03)(03)*04)*$")
     sequence_results = []
     for customer, seq in customer_sequences.items():
         seq_str = "".join(seq)
@@ -310,28 +309,38 @@ def process_validation_realtime(params):
         })
     send_data("sequence_results", sequence_results)
 
-    # Return final combined result
+    # Return final success result
     return {
-        "success": True,
-        "data": {
-            "validations": validations,
-            "filtered_transactions": filtered,
-            "structure_results": structure_results,
-            "duplicate_transactions": duplicate_transactions,
-            "zero_amount_transactions": zero_amount_transactions,
-            "tot_payment_results": tot_payment_results,
-            "sequence_results": sequence_results,
-            "non_idr_transactions": non_idr_transactions
-        }
+        "success": True
     }
-
 
 def main():
     try:
         input_data = sys.stdin.read()
+        if not input_data.strip():
+            return
+            
         params = json.loads(input_data.strip())
+        command = params.get("command", "validate")
 
-        result = process_validation_realtime(params)
+        if command == "validate":
+            result = process_validation_realtime(params)
+        elif command == "patch_file":
+            file_path = params["file_path"]
+            output_path = params.get("output_path", file_path.replace(".txt", "_patched.txt"))
+            
+            # Detect issues
+            issues = PTSTMTPatcher.detect_issues(file_path)
+            # Apply fixes
+            success = PTSTMTPatcher.apply_fixes(file_path, output_path, issues)
+            
+            result = {
+                "success": success,
+                "output_path": output_path,
+                "issues_fixed": len([i for i in issues if i["fixable"]])
+            }
+        else:
+            result = {"success": False, "error": f"Unknown command: {command}"}
 
         # Final JSON output
         print(json.dumps(result, default=str))

@@ -128,7 +128,7 @@ class PTSTMTValidator:
                     posting_date = to_date(extract_posting_date(line))
                     card_num = extract_card_number(line)
                     trx_detail = slice_str(line, 90, 129)
-                    trx_currency = slice_str(line, 131, 133)
+                    trx_currency = slice_str(line, 130, 132)
                     trx_amt = slice_num(line, 149, 162)
                     trx_dir = slice_str(line, 163, 164)
                     
@@ -251,18 +251,21 @@ class PTSTMTValidator:
             List of structure validation result dictionaries
         """
         results = []
-        required = {"01", "02", "03", "04"}
+        required = {"01", self.target_header_type, "03", "04"}
         
         for customer, types in card_records.items():
             missing = required - types
+            has_header = "Yes" if self.target_header_type in types else "No"
+            
             results.append({
                 "customer": customer,
                 "has_01": "Yes" if "01" in types else "No",
-                "has_02": "Yes" if "02" in types else "No",
+                "has_02": has_header if self.card_type == "REGULAR" else "N/A",
                 "has_03": "Yes" if "03" in types else "No",
                 "has_04": "Yes" if "04" in types else "No",
                 "status": "VALID" if not missing else "INVALID",
-                "missing": ", ".join(sorted(missing)) if missing else "-"
+                "missing": ", ".join(sorted(missing)) if missing else "-",
+                "fixable": "04" in missing and len(missing) == 1
             })
         
         return results
@@ -347,15 +350,10 @@ class PTSTMTValidator:
         """
         results = []
         # Regex for valid structure:
-        # ^01 : Starts with 01
-        # (02(03)*04) : First block must be normal (02..04)
-        # ( : Start of subsequent blocks group
-        #   (02|03) : Block can start with 02 OR 03
-        #   (03)* : Zero or more 03s
-        #   04 : End of block
-        # )* : Repeat subsequent blocks zero or more times
-        # $ : End of string
-        pattern = re.compile(r"^01(02(03)*04)((02|03)(03)*04)*$")
+        if self.card_type == "CORPORATE":
+            pattern = re.compile(r"^(0101(03)*04)+$")
+        else:
+            pattern = re.compile(r"^01(02(03)*04)((02|03)(03)*04)*$")
         
         for customer, seq in customer_sequences.items():
             # Join list into string "01020304..."

@@ -9,57 +9,41 @@ const MODULES = {
   validation: {
     title: 'Validation Results',
     columns: ['card', 'field', 'expected', 'actual', 'status'],
-    searchColumn: 'card',
-    searchPlaceholder: 'Search card number...',
     dataKey: 'validations'
   },
   posting: {
     title: 'Posting Date Filter',
     columns: ['posting', 'card', 'line'],
-    searchColumn: 'card',
-    searchPlaceholder: 'Search card number...',
     dataKey: 'filtered_transactions'
   },
   structure: {
     title: 'Structure Validation',
     columns: ['customer', 'has_01', 'has_02', 'has_03', 'has_04', 'status', 'missing'],
-    searchColumn: 'customer',
-    searchPlaceholder: 'Search customer...',
     dataKey: 'structure_results'
   },
   duplicate: {
     title: 'Duplicate Transactions',
     columns: ['card', 'posting_date', 'trx_detail', 'amount', 'direction', 'count'],
-    searchColumn: 'card',
-    searchPlaceholder: 'Search card number...',
     dataKey: 'duplicate_transactions'
   },
   totpay: {
     title: 'Tot Payment Check',
     columns: ['card', 'tot_payment', 'has_cr', 'cr_total', 'status'],
-    searchColumn: 'card',
-    searchPlaceholder: 'Search card number...',
     dataKey: 'tot_payment_results'
   },
   zeroamt: {
     title: 'Zero Amount Check',
     columns: ['card', 'posting_date', 'trx_detail', 'amount', 'direction'],
-    searchColumn: 'card',
-    searchPlaceholder: 'Search card number...',
     dataKey: 'zero_amount_transactions'
   },
   sequence: {
     title: 'Sequence Check',
     columns: ['customer', 'sequence', 'status'],
-    searchColumn: 'customer',
-    searchPlaceholder: 'Search customer...',
     dataKey: 'sequence_results'
   },
   currency: {
-    title: 'Currency Check (Non-IDR)',
+    title: 'Transaction Check',
     columns: ['card', 'posting_date', 'trx_detail', 'amount', 'currency', 'direction'],
-    searchColumn: 'card',
-    searchPlaceholder: 'Search card number...',
     dataKey: 'non_idr_transactions'
   }
 };
@@ -74,7 +58,6 @@ const state = {
   pageSize: 50,
   sortColumn: null,
   sortAscending: true,
-  searchText: '',
   columnFilters: {},    // { columnName: filterText }
   processing: false
 };
@@ -93,8 +76,6 @@ const dom = {
   progressBar: () => $('#progressBar'),
   progressPercent: () => $('#progressPercent'),
   resultsTitle: () => $('#resultsTitle'),
-  searchInput: () => $('#searchInput'),
-  btnClear: () => $('#btnClear'),
   tableHead: () => $('#tableHead'),
   tableBody: () => $('#tableBody'),
   emptyState: () => $('#emptyState'),
@@ -109,8 +90,9 @@ const dom = {
 document.addEventListener('DOMContentLoaded', () => {
   initSidebar();
   initControls();
-  initSearch();
   initDarkMode();
+  initDashboardNav();
+  initPatchModal();
   switchModule('dashboard');
   
   if (window.api) {
@@ -141,23 +123,42 @@ function handleRealtimeData(data) {
   // Append new rows
   state.allData[module].push(...rows);
   
-  // Find which UI module matches this data key
+  // During processing: only show lightweight row count, NO full table render
+  if (state.processing) {
+    const activeConfig = MODULES[state.currentModule];
+    if (activeConfig && activeConfig.dataKey === module) {
+      // Lightweight update: just show count in the showing info
+      if (!realtimeRenderTimer) {
+        realtimeRenderTimer = setTimeout(() => {
+          realtimeRenderTimer = null;
+          const total = state.allData[activeConfig.dataKey]?.length || 0;
+          dom.showingInfo().innerHTML = `<span style="color:#6366f1">Streaming... <strong>${total.toLocaleString()}</strong> rows received</span>`;
+        }, 300);
+      }
+    }
+    // Dashboard: lightweight update during processing
+    if (state.currentModule === 'dashboard') {
+      if (!realtimeRenderTimer) {
+        realtimeRenderTimer = setTimeout(() => {
+          realtimeRenderTimer = null;
+          renderDashboard();
+        }, 1000);
+      }
+    }
+    return;
+  }
+  
+  // After processing: full render (this path is rarely hit post-processing)
   const activeConfig = MODULES[state.currentModule];
   if (activeConfig && activeConfig.dataKey === module) {
-    // Throttle re-renders to max once per 500ms so user can interact freely
     if (!realtimeRenderTimer) {
       realtimeRenderTimer = setTimeout(() => {
         realtimeRenderTimer = null;
-        const searchHadFocus = document.activeElement === dom.searchInput();
         renderTable();
-        if (searchHadFocus) {
-          dom.searchInput().focus();
-        }
       }, 500);
     }
   }
   
-  // Always update dashboard if viewing it
   if (state.currentModule === 'dashboard') {
     if (!realtimeRenderTimer) {
       realtimeRenderTimer = setTimeout(() => {
@@ -182,10 +183,10 @@ function initSidebar() {
 function switchModule(moduleName) {
   state.currentModule = moduleName;
   state.currentPage = 1;
-  state.searchText = '';
   state.columnFilters = {};
   state.sortColumn = null;
   state.sortAscending = true;
+  state.currentPage = 1;
   
   // Update active nav
   dom.navItems().forEach(item => {
@@ -206,8 +207,14 @@ function switchModule(moduleName) {
     
     const config = MODULES[moduleName];
     dom.resultsTitle().textContent = config.title;
-    dom.searchInput().placeholder = config.searchPlaceholder;
-    dom.searchInput().value = '';
+    
+    // Show/hide Fix button based on module
+    const btnFix = document.getElementById('btnFix');
+    if (btnFix) {
+      const hasFixableIssues = (state.allData.structure_results || []).some(r => r.fixable);
+      btnFix.style.display = (moduleName === 'structure' && hasFixableIssues) ? '' : 'none';
+    }
+    
     renderTable();
   }
 }
@@ -268,24 +275,14 @@ function renderDashboard() {
   document.getElementById('metricIssues').textContent = totalIssues.toLocaleString();
   document.getElementById('metricCards').textContent = cardSet.size.toLocaleString();
   
-  // --- Donut: Validation Results ---
-  const valDeg = valTotal > 0 ? (valPass / valTotal) * 360 : 0;
-  document.getElementById('donutValidation').style.background = 
-    valTotal > 0
-      ? `conic-gradient(#27ae60 0deg, #27ae60 ${valDeg}deg, #e74c3c ${valDeg}deg, #e74c3c 360deg)`
-      : 'conic-gradient(#e9ecef 0deg, #e9ecef 360deg)';
-  document.getElementById('donutValPercent').textContent = passRate + '%';
+  // --- Chart.js: Validation Results ---
+  renderDoughnutChart('chartValidation', valPass, valFail, 'Pass', 'Fail', passRate + '%');
   document.getElementById('legendValPass').textContent = valPass;
   document.getElementById('legendValFail').textContent = valFail;
   
-  // --- Donut: Overall Health ---
+  // --- Chart.js: Overall Health ---
   const healthRate = healthTotal > 0 ? Math.round((healthValid / healthTotal) * 100) : 0;
-  const healthDeg = healthTotal > 0 ? (healthValid / healthTotal) * 360 : 0;
-  document.getElementById('donutHealth').style.background = 
-    healthTotal > 0
-      ? `conic-gradient(#27ae60 0deg, #27ae60 ${healthDeg}deg, #e74c3c ${healthDeg}deg, #e74c3c 360deg)`
-      : 'conic-gradient(#e9ecef 0deg, #e9ecef 360deg)';
-  document.getElementById('donutHealthPercent').textContent = healthRate + '%';
+  renderDoughnutChart('chartHealth', healthValid, healthInvalid, 'Valid', 'Invalid', healthRate + '%');
   document.getElementById('legendHealthValid').textContent = healthValid;
   document.getElementById('legendHealthInvalid').textContent = healthInvalid;
   
@@ -298,7 +295,7 @@ function renderDashboard() {
     { name: 'Duplicate Transactions', total: duplicates.length, pass: 0, fail: duplicates.length },
     { name: 'Zero Amount', total: zeroamt.length, pass: 0, fail: zeroamt.length },
     { name: 'Posting Date Filter', total: filtered.length, pass: 0, fail: filtered.length },
-    { name: 'Currency Check (Non-IDR)', total: nonidr.length, pass: 0, fail: nonidr.length },
+    { name: 'Transaction Check', total: nonidr.length, pass: 0, fail: nonidr.length },
   ];
   
   const tbody = document.getElementById('moduleHealthBody');
@@ -329,6 +326,9 @@ function renderDashboard() {
     `;
     tbody.appendChild(tr);
   });
+  
+  // Add click handlers for navigation
+  addHealthTableClickHandlers();
 }
 
 function initControls() {
@@ -350,8 +350,18 @@ function initControls() {
   // Process button
   dom.btnProcess().addEventListener('click', startProcessing);
   
-  // Export button
+  // Export buttons
   dom.btnExport().addEventListener('click', exportCSV);
+  
+  const btnExportExcel = document.getElementById('btnExportExcel');
+  if (btnExportExcel) {
+    btnExportExcel.addEventListener('click', exportExcel);
+  }
+  
+  const btnBatchExport = document.getElementById('btnBatchExport');
+  if (btnBatchExport) {
+    btnBatchExport.addEventListener('click', batchExportExcel);
+  }
 }
 
 async function startProcessing() {
@@ -365,6 +375,7 @@ async function startProcessing() {
   
   // Clear previous data for fresh realtime display
   state.allData = {};
+  state.columnOptionsCache = {};
   state.currentPage = 1;
   if (state.currentModule === 'dashboard') {
     renderDashboard();
@@ -392,9 +403,9 @@ async function startProcessing() {
     });
     
     if (result.success) {
-      // Use final result to ensure completeness (overwrites streamed data)
-      state.allData = result.data;
+      // Data is already populated via realtime streaming (handleRealtimeData)
       updateProgress(100);
+      state.processing = false; // Set to false BEFORE final render so dropdowns build!
       if (state.currentModule === 'dashboard') {
         renderDashboard();
       } else {
@@ -426,34 +437,11 @@ function updateStatus(text) {
   if (statusEl) statusEl.textContent = text;
 }
 
-// ===== SEARCH =====
-function initSearch() {
-  dom.searchInput().addEventListener('input', debounce(() => {
-    state.searchText = dom.searchInput().value.trim();
-    state.currentPage = 1;
-    renderTable();
-  }, 250));
-  
-  dom.searchInput().addEventListener('keydown', (e) => {
-    if (e.key === 'Enter') {
-      state.searchText = dom.searchInput().value.trim();
-      state.currentPage = 1;
-      renderTable();
-    }
-  });
-  
-  // Global search clear
-  dom.btnClear().addEventListener('click', () => {
-    dom.searchInput().value = '';
-    state.searchText = '';
-    state.currentPage = 1;
-    renderTable();
-  });
-}
+// ===== COLUMN FILTERS =====
 
 function updateColumnFilter(column, value) {
-  if (value.trim()) {
-    state.columnFilters[column] = value.trim().toLowerCase();
+  if (value) {
+    state.columnFilters[column] = value;
   } else {
     delete state.columnFilters[column];
   }
@@ -461,7 +449,18 @@ function updateColumnFilter(column, value) {
   renderTable();
 }
 
+// Columns that have few distinct values → use dropdown <select>
+const DROPDOWN_FILTER_COLUMNS = new Set([
+  'status', 'direction', 'field', 'currency',
+  'has_01', 'has_02', 'has_03', 'has_04', 'has_cr',
+  'fixable', 'count'
+]);
+
 // ===== TABLE RENDERING =====
+// Track which module the header was last built for, to avoid unnecessary rebuilds
+let lastRenderedHeaderModule = null;
+let lastRenderedHeaderDataLength = 0;
+
 function renderTable() {
   const config = MODULES[state.currentModule];
   const rawData = state.allData[config.dataKey] || [];
@@ -469,23 +468,21 @@ function renderTable() {
   // Apply search
   let data = rawData;
   
-  // Global search (if active)
-  if (state.searchText) {
-    const searchLower = state.searchText.toLowerCase();
-    data = data.filter(row => {
-      const val = String(row[config.searchColumn] || '').toLowerCase();
-      return val.includes(searchLower);
-    });
-  }
-  
   // Column filters
   const filterKeys = Object.keys(state.columnFilters);
   if (filterKeys.length > 0) {
     data = data.filter(row => {
       return filterKeys.every(key => {
         const filterVal = state.columnFilters[key];
-        const cellVal = String(row[key] || '').toLowerCase();
-        return cellVal.includes(filterVal);
+        const cellVal = String(row[key] || '').trim();
+        
+        if (DROPDOWN_FILTER_COLUMNS.has(key)) {
+          // Exact match for dropdowns
+          return cellVal === filterVal;
+        } else {
+          // Contains match for text inputs
+          return cellVal.toLowerCase().includes(filterVal.toLowerCase());
+        }
       });
     });
   }
@@ -507,8 +504,16 @@ function renderTable() {
   
   state.currentData = data;
   
-  // Render header
-  renderTableHead(config.columns);
+  // Only rebuild header when module changes or data length changes significantly (post-processing)
+  const needsHeaderRebuild = 
+    lastRenderedHeaderModule !== state.currentModule || 
+    (!state.processing && lastRenderedHeaderDataLength !== rawData.length);
+  
+  if (needsHeaderRebuild) {
+    renderTableHead(config.columns, rawData);
+    lastRenderedHeaderModule = state.currentModule;
+    lastRenderedHeaderDataLength = rawData.length;
+  }
   
   // Render body
   renderTableBody(config, data);
@@ -528,9 +533,13 @@ function renderTable() {
   }
 }
 
-function renderTableHead(columns) {
+function renderTableHead(columns, rawData) {
   const head = dom.tableHead();
   head.innerHTML = '';
+  
+  const dataKey = MODULES[state.currentModule].dataKey;
+  if (!state.columnOptionsCache) state.columnOptionsCache = {};
+  if (!state.columnOptionsCache[dataKey]) state.columnOptionsCache[dataKey] = {};
   
   columns.forEach(col => {
     const th = document.createElement('th');
@@ -556,18 +565,68 @@ function renderTableHead(columns) {
     th.appendChild(headerContent);
     labelSpan.addEventListener('click', () => sortBy(col));
     
-    // Filter input
-    const filterInput = document.createElement('input');
-    filterInput.type = 'text';
-    filterInput.className = 'column-filter';
-    filterInput.placeholder = `Filter ${label}...`;
-    filterInput.value = state.columnFilters[col] || '';
-    filterInput.addEventListener('click', (e) => e.stopPropagation());
-    filterInput.addEventListener('input', debounce((e) => {
-      updateColumnFilter(col, e.target.value);
-    }, 300));
+    // Filter element (Dropdown or Text Input)
+    const isDropdown = DROPDOWN_FILTER_COLUMNS.has(col);
+    let filterEl;
+
+    if (isDropdown) {
+      // Build Unique values only once after processing complete for dropdowns
+      let uniqueVals = state.columnOptionsCache[dataKey][col];
+      if (!uniqueVals && !state.processing) {
+        const valSet = new Set();
+        for (let i = 0; i < rawData.length; i++) {
+          const v = String(rawData[i][col] ?? '').trim();
+          if (v) valSet.add(v);
+          if (valSet.size >= 100) break; 
+        }
+        uniqueVals = [...valSet].sort((a, b) => a.localeCompare(b));
+        state.columnOptionsCache[dataKey][col] = uniqueVals;
+      }
+      
+      if (!uniqueVals) uniqueVals = [];
+      
+      filterEl = document.createElement('select');
+      filterEl.className = 'column-filter';
+      
+      const frag = document.createDocumentFragment();
+      const defaultOpt = document.createElement('option');
+      defaultOpt.value = '';
+      defaultOpt.textContent = 'All...';
+      frag.appendChild(defaultOpt);
+      
+      for (let i = 0; i < uniqueVals.length; i++) {
+        const opt = document.createElement('option');
+        opt.value = uniqueVals[i];
+        opt.textContent = uniqueVals[i];
+        frag.appendChild(opt);
+      }
+      
+      if (state.columnFilters[col] && !uniqueVals.includes(state.columnFilters[col])) {
+        const opt = document.createElement('option');
+        opt.value = state.columnFilters[col];
+        opt.textContent = state.columnFilters[col];
+        frag.appendChild(opt);
+      }
+      
+      filterEl.appendChild(frag);
+      filterEl.value = state.columnFilters[col] || '';
+      filterEl.addEventListener('change', (e) => updateColumnFilter(col, e.target.value));
+    } else {
+      // Text Input for dynamic columns (card, expected, actual, etc.)
+      filterEl = document.createElement('input');
+      filterEl.type = 'text';
+      filterEl.className = 'column-filter';
+      filterEl.placeholder = 'Filter...';
+      filterEl.value = state.columnFilters[col] || '';
+      
+      // Debounce text input
+      filterEl.addEventListener('input', debounce((e) => {
+        updateColumnFilter(col, e.target.value.trim());
+      }, 300));
+    }
     
-    th.appendChild(filterInput);
+    filterEl.addEventListener('click', (e) => e.stopPropagation());
+    th.appendChild(filterEl);
     head.appendChild(th);
   });
 }
@@ -606,6 +665,13 @@ function renderTableBody(config, data) {
       
       tr.appendChild(td);
     });
+    
+    // Drill-down: if this is a validation row with FAIL, make it clickable
+    if (state.currentModule === 'validation' && row.status === 'FAIL') {
+      tr.style.cursor = 'pointer';
+      tr.addEventListener('click', () => toggleDrillDown(tr, row));
+    }
+    
     body.appendChild(tr);
   });
 }
@@ -632,6 +698,7 @@ function sortBy(column) {
     state.sortAscending = true;
   }
   state.currentPage = 1;
+  lastRenderedHeaderModule = null; // Force header rebuild with new sort indicator
   renderTable();
 }
 
@@ -838,5 +905,399 @@ styleSheet.textContent = `
     from { transform: rotate(0deg); }
     to { transform: rotate(360deg); }
   }
+  @keyframes scaleIn {
+    from { transform: scale(0.9); opacity: 0; }
+    to { transform: scale(1); opacity: 1; }
+  }
+  .spinner {
+    width: 32px; height: 32px;
+    border: 3px solid #e9ecef;
+    border-top: 3px solid #f39c12;
+    border-radius: 50%;
+    animation: spin 0.8s linear infinite;
+  }
+  .metric-card:hover {
+    transform: translateY(-2px);
+    box-shadow: 0 6px 20px rgba(0,0,0,0.1);
+    transition: all 0.2s ease;
+  }
+  .module-health-table tbody tr { cursor: pointer; }
+  .module-health-table tbody tr:hover { background: rgba(79, 70, 229, 0.04); }
 `;
 document.head.appendChild(styleSheet);
+
+// ===== DASHBOARD NAVIGATION =====
+function initDashboardNav() {
+  // Metric card click handlers
+  const cardMap = {
+    'cardTotalChecks': 'validation',
+    'cardPassRate': 'validation',
+    'cardIssuesFound': 'structure',
+    'cardCardsProcessed': 'totpay'
+  };
+  
+  Object.entries(cardMap).forEach(([id, module]) => {
+    const el = document.getElementById(id);
+    if (el) {
+      el.addEventListener('click', () => switchModule(module));
+    }
+  });
+}
+
+// ===== MODULE HEALTH TABLE NAVIGATION =====
+const MODULE_NAME_MAP = {
+  'Validation Results': 'validation',
+  'Structure Validation': 'structure',
+  'Tot Payment Check': 'totpay',
+  'Sequence Check': 'sequence',
+  'Duplicate Transactions': 'duplicate',
+  'Zero Amount': 'zeroamt',
+  'Posting Date Filter': 'posting',
+  'Transaction Check': 'currency'
+};
+
+function addHealthTableClickHandlers() {
+  const tbody = document.getElementById('moduleHealthBody');
+  if (!tbody) return;
+  
+  const rows = tbody.querySelectorAll('tr');
+  rows.forEach(tr => {
+    const firstTd = tr.querySelector('td');
+    if (firstTd) {
+      const moduleName = firstTd.textContent.trim();
+      const moduleKey = MODULE_NAME_MAP[moduleName];
+      if (moduleKey) {
+        tr.style.cursor = 'pointer';
+        tr.addEventListener('click', () => switchModule(moduleKey));
+      }
+    }
+  });
+}
+
+// ===== PATCHING MODAL =====
+function initPatchModal() {
+  const btnFix = document.getElementById('btnFix');
+  const modal = document.getElementById('patchModal');
+  const btnCancel = document.getElementById('btnCancelPatch');
+  const btnConfirm = document.getElementById('btnConfirmPatch');
+  
+  if (btnFix) {
+    btnFix.addEventListener('click', () => {
+      if (modal) {
+        modal.style.display = 'flex';
+        document.getElementById('patchStatus').textContent = 
+          "This will generate a new file with missing '04' records inserted to fix structural validation issues.";
+        document.getElementById('patchLoading').style.display = 'none';
+        btnConfirm.disabled = false;
+      }
+    });
+  }
+  
+  if (btnCancel) {
+    btnCancel.addEventListener('click', () => {
+      if (modal) modal.style.display = 'none';
+    });
+  }
+  
+  if (btnConfirm) {
+    btnConfirm.addEventListener('click', () => patchFile());
+  }
+  
+  // Close modal on background click
+  if (modal) {
+    modal.addEventListener('click', (e) => {
+      if (e.target === modal) modal.style.display = 'none';
+    });
+  }
+}
+
+async function patchFile() {
+  if (!state.filePath || !window.api) return;
+  
+  const modal = document.getElementById('patchModal');
+  const btnConfirm = document.getElementById('btnConfirmPatch');
+  const loading = document.getElementById('patchLoading');
+  const statusEl = document.getElementById('patchStatus');
+  
+  // Show loading
+  btnConfirm.disabled = true;
+  loading.style.display = 'block';
+  statusEl.textContent = 'Analyzing and patching file...';
+  
+  try {
+    const result = await window.api.runValidation({
+      command: 'patch_file',
+      file_path: state.filePath
+    });
+    
+    loading.style.display = 'none';
+    
+    if (result.success) {
+      statusEl.innerHTML = `
+        <span style="color:#27ae60; font-weight:600;">✓ Patching completed successfully!</span><br>
+        <span style="font-size:12px; color:#888; margin-top:8px; display:block;">
+          Fixed ${result.issues_fixed} issue(s).<br>
+          Output: <code style="background:#f5f5f5; padding:2px 6px; border-radius:4px;">${result.output_path}</code>
+        </span>
+      `;
+      btnConfirm.textContent = 'Done';
+      btnConfirm.style.background = '#27ae60';
+      btnConfirm.disabled = false;
+      btnConfirm.onclick = () => { modal.style.display = 'none'; };
+      showToast(`File patched successfully! ${result.issues_fixed} issue(s) fixed.`, 'success');
+    } else {
+      statusEl.innerHTML = `<span style="color:#e74c3c;">✗ Patching failed: ${result.error || 'No fixable issues found.'}</span>`;
+      btnConfirm.disabled = false;
+    }
+  } catch (err) {
+    loading.style.display = 'none';
+    statusEl.innerHTML = `<span style="color:#e74c3c;">X Error: ${err.message}</span>`;
+    btnConfirm.disabled = false;
+  }
+}
+
+// ===== CHART.JS DOUGHNUT RENDERER =====
+let chartInstances = {};
+
+function renderDoughnutChart(canvasId, goodVal, badVal, goodLabel, badLabel, centerText) {
+  const canvas = document.getElementById(canvasId);
+  if (!canvas) return;
+  
+  // Destroy existing chart instance
+  if (chartInstances[canvasId]) {
+    chartInstances[canvasId].destroy();
+  }
+  
+  const total = goodVal + badVal;
+  const data = total > 0 ? [goodVal, badVal] : [0, 1]; // Show grey if no data
+  const colors = total > 0 ? ['#27ae60', '#e74c3c'] : ['#e9ecef', '#e9ecef'];
+  
+  chartInstances[canvasId] = new Chart(canvas, {
+    type: 'doughnut',
+    data: {
+      labels: [goodLabel, badLabel],
+      datasets: [{
+        data: data,
+        backgroundColor: colors,
+        borderWidth: 0,
+        hoverOffset: 6
+      }]
+    },
+    options: {
+      responsive: true,
+      maintainAspectRatio: true,
+      cutout: '62%',
+      plugins: {
+        legend: { display: false },
+        tooltip: {
+          backgroundColor: 'rgba(0,0,0,0.8)',
+          titleFont: { family: 'Inter', size: 12 },
+          bodyFont: { family: 'Inter', size: 12 },
+          padding: 10,
+          cornerRadius: 8,
+          callbacks: {
+            label: function(context) {
+              const val = context.raw;
+              const pct = total > 0 ? Math.round((val / total) * 100) : 0;
+              return ` ${context.label}: ${val.toLocaleString()} (${pct}%)`;
+            }
+          }
+        }
+      },
+      animation: {
+        animateRotate: true,
+        duration: 800
+      }
+    },
+    plugins: [{
+      // Center text plugin
+      id: 'centerText',
+      afterDraw(chart) {
+        const { ctx, chartArea: { width, height, top, left } } = chart;
+        ctx.save();
+        const cx = left + width / 2;
+        const cy = top + height / 2;
+        
+        ctx.textAlign = 'center';
+        ctx.textBaseline = 'middle';
+        
+        // Main percentage
+        ctx.font = 'bold 22px Inter';
+        ctx.fillStyle = getComputedStyle(document.body).getPropertyValue('--text-primary').trim() || '#1a1a2e';
+        ctx.fillText(centerText, cx, cy - 6);
+        
+        // Sub label
+        ctx.font = '500 11px Inter';
+        ctx.fillStyle = getComputedStyle(document.body).getPropertyValue('--text-secondary').trim() || '#6c757d';
+        ctx.fillText(goodLabel, cx, cy + 14);
+        
+        ctx.restore();
+      }
+    }]
+  });
+}
+
+// ===== DRILL-DOWN FOR FAIL ROWS =====
+function toggleDrillDown(tr, row) {
+  // Check if drill-down row already exists
+  const existingDrillDown = tr.nextElementSibling;
+  if (existingDrillDown && existingDrillDown.classList.contains('drill-down-row')) {
+    existingDrillDown.remove();
+    return;
+  }
+  
+  // Remove any other open drill-down
+  document.querySelectorAll('.drill-down-row').forEach(el => el.remove());
+  
+  const expected = row.expected ?? 0;
+  const actual = row.actual ?? 0;
+  const diff = actual - expected;
+  
+  const formatNum = (n) => {
+    if (typeof n === 'number') {
+      return 'Rp ' + Math.abs(n).toLocaleString('id-ID');
+    }
+    return String(n);
+  };
+  
+  const drillRow = document.createElement('tr');
+  drillRow.className = 'drill-down-row';
+  const colSpan = MODULES[state.currentModule].columns.length;
+  
+  const td = document.createElement('td');
+  td.colSpan = colSpan;
+  td.innerHTML = `
+    <div class="drill-down-content">
+      <div class="drill-down-header">
+        <span class="material-icons-outlined" style="font-size:18px;color:#e74c3c">info</span>
+        <strong>Discrepancy Detail — ${escapeHtml(row.field || '')}</strong>
+      </div>
+      <div class="drill-down-grid">
+        <div class="drill-item">
+          <span class="drill-label">Expected</span>
+          <span class="drill-value" style="color:#27ae60">${formatNum(expected)}</span>
+        </div>
+        <div class="drill-item">
+          <span class="drill-label">Actual</span>
+          <span class="drill-value" style="color:#e74c3c">${formatNum(actual)}</span>
+        </div>
+        <div class="drill-item">
+          <span class="drill-label">Difference</span>
+          <span class="drill-value" style="color:${diff >= 0 ? '#f39c12' : '#e74c3c'};font-weight:700">
+            ${diff >= 0 ? '+' : '-'}${formatNum(Math.abs(diff))}
+          </span>
+        </div>
+      </div>
+    </div>
+  `;
+  
+  drillRow.appendChild(td);
+  tr.insertAdjacentElement('afterend', drillRow);
+}
+
+// ===== EXCEL EXPORT (Single Module) =====
+async function exportExcel() {
+  const config = MODULES[state.currentModule];
+  const data = state.currentData;
+  
+  if (!data || data.length === 0) {
+    showToast('No data to export', 'error');
+    return;
+  }
+  
+  if (!window.XLSX) {
+    showToast('XLSX library not loaded', 'error');
+    return;
+  }
+  
+  if (!window.api) return;
+  
+  const defaultName = `${config.dataKey}_export.xlsx`;
+  const filePath = await window.api.saveFile(defaultName);
+  if (!filePath) return;
+  
+  try {
+    const wb = XLSX.utils.book_new();
+    const wsData = [config.columns.map(c => c.replace(/_/g, ' ').toUpperCase())];
+    
+    data.forEach(row => {
+      wsData.push(config.columns.map(col => row[col] ?? ''));
+    });
+    
+    const ws = XLSX.utils.aoa_to_sheet(wsData);
+    
+    // Column widths
+    ws['!cols'] = config.columns.map(col => ({ wch: Math.max(col.length + 2, 15) }));
+    
+    XLSX.utils.book_append_sheet(wb, ws, config.title.substring(0, 31));
+    
+    // Write as buffer
+    const wbout = XLSX.write(wb, { bookType: 'xlsx', type: 'array' });
+    const dataArray = Array.from(new Uint8Array(wbout));
+    
+    // Use writeBinary to save
+    const result = await window.api.writeBinary(filePath, dataArray);
+    if (result.success) {
+      showToast('Excel export successful!', 'success');
+    } else {
+      showToast(`Export failed: ${result.error}`, 'error');
+    }
+  } catch (err) {
+    showToast(`Excel export error: ${err.message}`, 'error');
+  }
+}
+
+// ===== BATCH EXCEL EXPORT (All Modules) =====
+async function batchExportExcel() {
+  const d = state.allData;
+  const hasData = Object.keys(d).some(k => d[k] && d[k].length > 0);
+  
+  if (!hasData) {
+    showToast('No data to export. Run validation first.', 'error');
+    return;
+  }
+  
+  if (!window.XLSX) {
+    showToast('XLSX library not loaded', 'error');
+    return;
+  }
+  
+  if (!window.api) return;
+  
+  const defaultName = 'StatementGuard_FullReport.xlsx';
+  const filePath = await window.api.saveFile(defaultName);
+  if (!filePath) return;
+  
+  try {
+    const wb = XLSX.utils.book_new();
+    
+    Object.entries(MODULES).forEach(([key, config]) => {
+      const rawData = d[config.dataKey] || [];
+      if (rawData.length === 0) return;
+      
+      const wsData = [config.columns.map(c => c.replace(/_/g, ' ').toUpperCase())];
+      rawData.forEach(row => {
+        wsData.push(config.columns.map(col => row[col] ?? ''));
+      });
+      
+      const ws = XLSX.utils.aoa_to_sheet(wsData);
+      ws['!cols'] = config.columns.map(col => ({ wch: Math.max(col.length + 2, 15) }));
+      
+      // Sheet name max 31 chars
+      const sheetName = config.title.substring(0, 31);
+      XLSX.utils.book_append_sheet(wb, ws, sheetName);
+    });
+    
+    const wbout = XLSX.write(wb, { bookType: 'xlsx', type: 'array' });
+    const dataArray = Array.from(new Uint8Array(wbout));
+    
+    const result = await window.api.writeBinary(filePath, dataArray);
+    if (result.success) {
+      showToast('Batch export successful! All modules exported.', 'success');
+    } else {
+      showToast(`Batch export failed: ${result.error}`, 'error');
+    }
+  } catch (err) {
+    showToast(`Batch export error: ${err.message}`, 'error');
+  }
+}

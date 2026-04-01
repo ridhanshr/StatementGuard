@@ -5,6 +5,7 @@ contextBridge.exposeInMainWorld('api', {
   selectFile: () => ipcRenderer.invoke('select-file'),
   saveFile: (defaultName) => ipcRenderer.invoke('save-file', defaultName),
   writeCsv: (filePath, csvContent) => ipcRenderer.invoke('write-csv', filePath, csvContent),
+  writeBinary: (filePath, dataArray) => ipcRenderer.invoke('write-binary', filePath, dataArray),
   
   // Validation
   runValidation: (params) => ipcRenderer.invoke('run-validation', params),

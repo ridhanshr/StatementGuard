@@ -59,11 +59,18 @@ ipcMain.handle("select-file", async () => {
   return result.filePaths[0];
 });
 
-// Save file dialog (for CSV export)
+// Save file dialog (for CSV/Excel export)
 ipcMain.handle("save-file", async (event, defaultName) => {
+  const ext = path.extname(defaultName).toLowerCase();
+  let filters;
+  if (ext === '.xlsx') {
+    filters = [{ name: "Excel Files", extensions: ["xlsx"] }];
+  } else {
+    filters = [{ name: "CSV Files", extensions: ["csv"] }];
+  }
   const result = await dialog.showSaveDialog(mainWindow, {
     defaultPath: defaultName,
-    filters: [{ name: "CSV Files", extensions: ["csv"] }],
+    filters: filters,
   });
   if (result.canceled) return null;
   return result.filePath;
@@ -73,6 +80,17 @@ ipcMain.handle("save-file", async (event, defaultName) => {
 ipcMain.handle("write-csv", async (event, filePath, csvContent) => {
   try {
     fs.writeFileSync(filePath, csvContent, "utf8");
+    return { success: true };
+  } catch (err) {
+    return { success: false, error: err.message };
+  }
+});
+
+// Write binary file (for XLSX)
+ipcMain.handle("write-binary", async (event, filePath, dataArray) => {
+  try {
+    const buffer = Buffer.from(dataArray);
+    fs.writeFileSync(filePath, buffer);
     return { success: true };
   } catch (err) {
     return { success: false, error: err.message };
@@ -103,22 +121,37 @@ ipcMain.handle("run-validation", async (event, params) => {
       env: { ...process.env, PYTHONIOENCODING: "utf-8" },
     });
 
-    let stdout = "";
+    let stdoutDataBuffer = "";
+    let stdoutDataLines = [];
     let stderr = "";
 
-    pythonProcess.stdout.on("data", (data) => {
-      const text = data.toString();
-      // Check for progress and data updates
-      const lines = text.split("\n");
-      for (const line of lines) {
+    pythonProcess.stdout.on("data", (chunk) => {
+      stdoutDataBuffer += chunk.toString();
+      
+      let newlineIndex;
+      while ((newlineIndex = stdoutDataBuffer.indexOf("\n")) !== -1) {
+        const line = stdoutDataBuffer.substring(0, newlineIndex).trim();
+        stdoutDataBuffer = stdoutDataBuffer.substring(newlineIndex + 1);
+        
+        if (!line) continue;
+
         if (line.startsWith("PROGRESS:")) {
-          const progressData = JSON.parse(line.substring(9));
-          mainWindow.webContents.send("validation-progress", progressData);
+          try {
+            const progressData = JSON.parse(line.substring(9));
+            mainWindow.webContents.send("validation-progress", progressData);
+          } catch (e) {
+            console.error("Failed to parse progress:", e);
+          }
         } else if (line.startsWith("DATA:")) {
-          const dataPayload = JSON.parse(line.substring(5));
-          mainWindow.webContents.send("validation-data", dataPayload);
-        } else if (line.trim()) {
-          stdout += line;
+          try {
+            const dataPayload = JSON.parse(line.substring(5));
+            mainWindow.webContents.send("validation-data", dataPayload);
+          } catch (e) {
+            console.error("Failed to parse data payload:", e);
+          }
+        } else {
+          // Store other output for final parsing (the success json)
+          stdoutDataLines.push(line);
         }
       }
     });
@@ -129,14 +162,14 @@ ipcMain.handle("run-validation", async (event, params) => {
 
     pythonProcess.on("close", (code) => {
       pythonProcess = null;
+      const fullStdout = stdoutDataLines.join("");
       if (code === 0) {
         try {
-          const result = JSON.parse(stdout);
+          // If bridge returned nothing or just success, we resolve
+          const result = fullStdout ? JSON.parse(fullStdout) : { success: true };
           resolve(result);
         } catch (e) {
-          reject(
-            new Error(`Failed to parse output: ${stdout}\nStderr: ${stderr}`),
-          );
+          resolve({ success: true }); // Fallback to success if we can't parse but code was 0
         }
       } else {
         reject(new Error(`Process exited with code ${code}: ${stderr}`));

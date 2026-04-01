@@ -13,6 +13,8 @@
       href="https://fonts.googleapis.com/icon?family=Material+Icons+Outlined"
       rel="stylesheet"
     />
+    <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.7/dist/chart.umd.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
   </head>
   <body>
     <div class="app-container">
@@ -60,7 +62,7 @@
           </a>
           <a class="nav-item" data-module="currency" href="#">
             <span class="nav-icon material-icons-outlined">payments</span>
-            <span class="nav-text">Currency Check</span>
+            <span class="nav-text">Transaction Check</span>
           </a>
           <a class="nav-item" data-module="zeroamt" href="#">
             <span class="nav-icon material-icons-outlined">money_off</span>
@@ -186,7 +188,7 @@
           <div id="dashboardView" class="dashboard-view">
             <!-- Metric Cards -->
             <div class="metric-cards">
-              <div class="metric-card">
+              <div class="metric-card" id="cardTotalChecks" style="cursor:pointer">
                 <div class="metric-icon" style="background:#eef2ff;color:#4f46e5">
                   <span class="material-icons-outlined">fact_check</span>
                 </div>
@@ -195,7 +197,7 @@
                   <span class="metric-label">Total Checks</span>
                 </div>
               </div>
-              <div class="metric-card">
+              <div class="metric-card" id="cardPassRate" style="cursor:pointer">
                 <div class="metric-icon" style="background:#d5f5e3;color:#27ae60">
                   <span class="material-icons-outlined">check_circle</span>
                 </div>
@@ -204,7 +206,7 @@
                   <span class="metric-label">Pass Rate</span>
                 </div>
               </div>
-              <div class="metric-card">
+              <div class="metric-card" id="cardIssuesFound" style="cursor:pointer">
                 <div class="metric-icon" style="background:#fdecea;color:#e74c3c">
                   <span class="material-icons-outlined">error_outline</span>
                 </div>
@@ -213,7 +215,7 @@
                   <span class="metric-label">Issues Found</span>
                 </div>
               </div>
-              <div class="metric-card">
+              <div class="metric-card" id="cardCardsProcessed" style="cursor:pointer">
                 <div class="metric-icon" style="background:#fef5e7;color:#f39c12">
                   <span class="material-icons-outlined">credit_card</span>
                 </div>
@@ -229,11 +231,7 @@
               <div class="card chart-card">
                 <h3 class="chart-title">Validation Results</h3>
                 <div class="donut-container">
-                  <div class="donut" id="donutValidation"></div>
-                  <div class="donut-center">
-                    <span class="donut-percent" id="donutValPercent">0%</span>
-                    <span class="donut-sub">Pass</span>
-                  </div>
+                  <canvas id="chartValidation" width="160" height="160"></canvas>
                 </div>
                 <div class="chart-legend">
                   <div class="legend-item"><span class="legend-dot" style="background:#27ae60"></span> Pass <strong id="legendValPass">0</strong></div>
@@ -243,11 +241,7 @@
               <div class="card chart-card">
                 <h3 class="chart-title">Overall Health</h3>
                 <div class="donut-container">
-                  <div class="donut" id="donutHealth"></div>
-                  <div class="donut-center">
-                    <span class="donut-percent" id="donutHealthPercent">0%</span>
-                    <span class="donut-sub">Valid</span>
-                  </div>
+                  <canvas id="chartHealth" width="160" height="160"></canvas>
                 </div>
                 <div class="chart-legend">
                   <div class="legend-item"><span class="legend-dot" style="background:#27ae60"></span> Valid <strong id="legendHealthValid">0</strong></div>
@@ -284,19 +278,9 @@
                 <h2 class="results-title" id="resultsTitle">
                   Validation Results
                 </h2>
-                <span class="badge badge-green" id="realtimeBadge"
+                <!-- <span class="badge badge-green" id="realtimeBadge"
                   >Realtime View</span
-                >
-              </div>
-              <div class="search-bar">
-                <span class="material-icons-outlined search-icon">search</span>
-                <input
-                  type="text"
-                  class="search-input"
-                  id="searchInput"
-                  placeholder="Search card number..."
-                />
-                <button class="btn btn-text" id="btnClear">Clear</button>
+                > -->
               </div>
             </div>
 
@@ -326,6 +310,10 @@
               <div class="showing-info" id="showingInfo">Showing 0 results</div>
               <div class="table-footer-right">
                 <div class="pagination" id="pagination"></div>
+                <button class="btn btn-outline" id="btnFix" style="display:none; border-color: #f39c12; color: #f39c12; margin-right: 8px;">
+                  <span class="material-icons-outlined" style="font-size: 18px">auto_fix_high</span>
+                  Fix Structural Issues
+                </button>
                 <button class="btn btn-outline btn-export" id="btnExport">
                   <span
                     class="material-icons-outlined"
@@ -334,12 +322,49 @@
                   >
                   Export CSV
                 </button>
+                <button class="btn btn-outline btn-export" id="btnExportExcel">
+                  <span
+                    class="material-icons-outlined"
+                    style="font-size: 18px; color: #4f46e5"
+                    >description</span
+                  >
+                  Export Excel
+                </button>
+                <button class="btn btn-outline btn-export" id="btnBatchExport" style="display:none;">
+                  <span
+                    class="material-icons-outlined"
+                    style="font-size: 18px; color: #f39c12"
+                    >file_download</span
+                  >
+                  Batch Export All
+                </button>
               </div>
             </div>
           </div>
           </div><!-- /tableView -->
         </div>
       </main>
+    </div>
+
+    <!-- Patching Modal -->
+    <div id="patchModal" class="modal" style="display:none; position:fixed; z-index:10000; left:0; top:0; width:100%; height:100%; background:rgba(0,0,0,0.5); align-items:center; justify-content:center;">
+      <div class="card" style="width:400px; padding:24px; animation: scaleIn 0.2s ease;">
+        <h3 style="margin-top:0; display:flex; align-items:center; gap:8px;">
+          <span class="material-icons-outlined" style="color:#f39c12">auto_fix_high</span>
+          Patching Structural Issues
+        </h3>
+        <p id="patchStatus" style="font-size:14px; color:#666; line-height:1.5;">
+          This will generate a new file with missing '04' records inserted to fix structural validation issues.
+        </p>
+        <div id="patchLoading" style="display:none; margin:16px 0; text-align:center;">
+          <div class="spinner" style="margin:0 auto 8px;"></div>
+          <span style="font-size:12px; color:#adb5bd;">Applying fixes...</span>
+        </div>
+        <div style="display:flex; justify-content:flex-end; gap:12px; margin-top:24px;">
+          <button class="btn btn-text" id="btnCancelPatch">Cancel</button>
+          <button class="btn btn-primary" id="btnConfirmPatch" style="background:#f39c12">Apply Fixes</button>
+        </div>
+      </div>
     </div>
 
     <script src="js/app.js"></script>
