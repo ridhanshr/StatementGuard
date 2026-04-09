@@ -8,8 +8,6 @@
 irm https://raw.githubusercontent.com/ridhanshr/StatementGuard/main/install.ps1 | iex
 ```
 
-> Perintah di atas akan otomatis download dan jalankan installer versi terbaru.
-
 ## Fitur
 
 - ✅ **Validation Results** — Cek NEW_BAL, AVL_CR_LIMIT, PT_SH_MIN_PAYMENT
